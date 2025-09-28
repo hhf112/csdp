@@ -1,11 +1,9 @@
+import { warn } from 'console';
 import puppeteer from 'puppeteer';
 // import { urls } from '../config/howstats.dat.ts';
 // import { Player } from '../models/player.model.ts';
 // import type { PlayerType, MatchStatsType } from '../models/player.model';
 //
-
-
-
 
 const urls = {
   /*
@@ -32,100 +30,60 @@ const wicketkeepingLabels = [
   "Most Dismissals in Innings"
 ];
 
-
+let gPlayerCnt = 0;
 export async function updatePlayerStats() {
-  const meta = {};
+  let meta = [];
   const matchesInfo = [];
 
-  puppeteer.launch({ headless: true });
-  const browser = await puppeteer.launch();
-  const page = await browser.newPage();
+  const browser = await puppeteer.launch({
+    headless: true,
+    defaultViewport: null,
+  });
+  const homePage = (await browser.pages())[0];
 
-  await page.goto(urls.home);
-  await page.waitForNetworkIdle();
+  await homePage.goto(urls.home, { waitUntil: "domcontentloaded" });
 
-  for (let letter = 0; letter < 26; ++letter) {
-    const letters = await page.$$(".abcList");
-    await letters[letter].click();
-    await page.waitForNavigation({ waitUntil: "domcontentloaded" });
+  const letters = await homePage.$$eval(".abcList", el => el.map(ch => ch.href));
 
-    await page.screenshot({ path: "/mnt/c/Users/ASUS/OneDrive/Desktop/test.png" });
+  const playersPage = await browser.newPage();
 
-    let rows = await page.$$(".TableLined > tbody:nth-child(1) > tr");
+  for (const letter of letters) {
+    await playersPage.goto(letter, { waitUntil: "domcontentloaded" });
 
-    for (let row = 0; row < rows.length; ++row) {
+    // debug
+    // await playersPage.screenshot({ path: "/mnt/c/Users/ASUS/OneDrive/Desktop/test.png" });
+    // console.error("screenshot taken.")
 
-      rows = await page.$$(".TableLined > tbody:nth-child(1) > tr");
-      /*
-       * 0 -> name
-       * 1 -> tests
-       * 2 -> odi
-       * 3 -> t20
-       * */
-      let cells = await rows[row].$$("td > a");
-
-      // all match types.
-      for (let cell = 1; cell < cells.length; ++cell) {
-        rows = await page.$$(".TableLined > tbody:nth-child(1) > tr");
-        /*
-         * 0 -> name
-         * 1 -> tests
-         * 2 -> odi
-         * 3 -> t20
-         * */
-        cells = await rows[row].$$("td > a");
-
-        // set the page for the data of a certain match type.
-        await cells[cell].click();
-        await page.waitForNavigation({ waitUntil: "domcontentloaded" });
-
-        await page.screenshot({ path: "/mnt/c/Users/ASUS/OneDrive/Desktop/test2.png" });
-
-        // meta is not filled.
-        if (Object.keys(meta).length === 0) {
-
-          const metadata = await page.$$("td.FieldName");
-          console.log("found: ", metadata.length);
-
-          const getit = (i) => Promise.resolve(metadata[i].evaluate(el => {
-            return Array.from(el.parentElement.querySelectorAll('td'))[1].textContent.trim();
-          }));
-
-          meta.name = await getit(0);
-
-          meta.born = await  getit(1);
-          meta.currentAge = await  getit(2);
-          meta.bats = await getit(3)
-          meta.bowls = await getit(4)
-          meta.matches = await getit(5)
-          console.error(meta);
-        }
-
-        // fill batting Labels
-        for (let label of battingLabels) {
-          const handle = await page.$(`text/${label}`)
-
-          // handle this later.
-          if (!handle) return;
-
-          if (!matchesInfo.batting) matchesInfo.batting = {};
-          matchesInfo.batting[label] = handle.evaluate(el => {
-            const rw = el.parentElement?.querySelectorAll("td");
-
-            // handle later.
-            if (!rw) return;
-
-            return rw[1].textContent;
-          });
-        }
-
-        await page.goBack();
+    const data = await playersPage.$eval(".TableLined > tbody:nth-child(1)", el => {
+      const data = [];
+      const rows = Array.from(el.rows);
+      let cells;
+      for (let i = 2; i < rows.length; i++) {
+        cells = Array.from(rows[i].cells);
+        data.push({
+          name: cells[0]?.textContent.trim() || "",
+          born: cells[1]?.textContent.trim() || "",
+          country: cells[2]?.textContent.trim() || "",
+          tests: cells[3]?.textContent.trim() || "0",
+          ODIs: cells[4]?.textContent.trim() || "0",
+          T20s: cells[5]?.textContent.trim() || "0",
+        });
       }
-    }
+      return data;
+    });
 
-    console.log("done");
-    await browser.close();
+
+    meta = [meta, ...data];
+    // debug
+    // console.error(meta);
   }
+
+  await playersPage.close();
+  await homePage.close();
+  await browser.close();
+
+  // debug
+  // console.log(meta);
 }
 
 (async () => { await updatePlayerStats() })();
