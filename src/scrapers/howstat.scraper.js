@@ -1,4 +1,3 @@
-import { warn } from 'console';
 import puppeteer from 'puppeteer';
 // import { urls } from '../config/howstats.dat.ts';
 // import { Player } from '../models/player.model.ts';
@@ -31,9 +30,27 @@ const wicketkeepingLabels = [
 ];
 
 let gPlayerCnt = 0;
+
+// WIP
+export async function scrapeMatchPage(page, url) {
+  batting = {};
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  const battingData = await page.$eval(".desktop > tbody:nth-child(1)", (el, battingLabels) => {
+    const rows = Array.from(el.rows);
+    const batting = {};
+
+    for (let i = 1; i < battingLabels.length; i++) {
+      batting[battingLabels[i]] = rows.cells[1].textContent;
+    }
+    return batting;
+  }, battingLabels);
+
+  batting = battingData;
+  console.error(batting);
+}
+
 export async function updatePlayerStats() {
   let meta = [];
-  const matchesInfo = [];
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -46,6 +63,7 @@ export async function updatePlayerStats() {
   const letters = await homePage.$$eval(".abcList", el => el.map(ch => ch.href));
 
   const playersPage = await browser.newPage();
+  const matchPage = await browser.newPage();
 
   for (const letter of letters) {
     await playersPage.goto(letter, { waitUntil: "domcontentloaded" });
@@ -54,9 +72,11 @@ export async function updatePlayerStats() {
     // await playersPage.screenshot({ path: "/mnt/c/Users/ASUS/OneDrive/Desktop/test.png" });
     // console.error("screenshot taken.")
 
-    const data = await playersPage.$eval(".TableLined > tbody:nth-child(1)", el => {
+    const data = await playersPage.$eval(".TableLined > tbody:nth-child(1)", async (el) => {
       const data = [];
+      const matches = [];
       const rows = Array.from(el.rows);
+
       let cells;
       for (let i = 2; i < rows.length; i++) {
         cells = Array.from(rows[i].cells);
@@ -68,12 +88,24 @@ export async function updatePlayerStats() {
           ODIs: cells[4]?.textContent.trim() || "0",
           T20s: cells[5]?.textContent.trim() || "0",
         });
+
+        matches.push([]);
+        for (j = 3; j < 6; j++) {
+          if (cells[j]) matches[i] = [...matches[i], cells[j].firstElementChild.href];
+        }
+
       }
-      return data;
+      return { data, matches };
     });
 
+    // WIP
+    for (matchData of data.matches) {
+      for (matches of matchData) {
+        matchesInfo.push(await scrapeMatchPage(matchPage, matches));
+      }
+    }
 
-    meta = [meta, ...data];
+    meta = [meta, ...data.data];
     // debug
     // console.error(meta);
   }
